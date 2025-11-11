@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+sqlalchemy
+psycopg2-binary
+alembic
+pydantic
+pydantic-settings
+redis
+httpx
+pytest
+pytest-asyncio
+pytest-cov
+python-multipart
+email-validator
+jinja2

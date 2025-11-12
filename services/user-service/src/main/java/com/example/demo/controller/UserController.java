@@ -3,6 +3,7 @@ package com.example.demo.controller;
 import com.example.demo.dto.ApiResponse;
 import com.example.demo.dto.LoginRequest;
 import com.example.demo.dto.PaginationMeta;
+import com.example.demo.dto.UserResponseDTO;
 import com.example.demo.entity.NotificationPreference;
 import com.example.demo.entity.User;
 import com.example.demo.repository.UserRepository;
@@ -34,9 +35,15 @@ public class UserController {
         this.jwtService = jwtService;
     }
 
+//    @PostMapping
+//    public ResponseEntity<User> createUser(@RequestBody User user) {
+//        return ResponseEntity.ok(userService.createUser(user));
+//    }
+
     @PostMapping
-    public ResponseEntity<User> createUser(@RequestBody User user) {
-        return ResponseEntity.ok(userService.createUser(user));
+    public ResponseEntity<UserResponseDTO> createUser(@RequestBody User user) {
+        UserResponseDTO response = userService.createUser(user);
+        return ResponseEntity.ok(response);
     }
 
     @GetMapping("/{id}")

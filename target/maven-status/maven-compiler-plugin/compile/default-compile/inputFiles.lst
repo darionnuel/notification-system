@@ -1,0 +1,14 @@
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\config\SecurityConfig.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\controller\UserController.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\dto\ApiResponse.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\dto\LoginRequest.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\dto\PaginationMeta.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\dto\UserRequest.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\dto\UserResponse.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\entity\NotificationPreference.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\entity\User.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\NotificationServiceApplication.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\repository\NotificationPreferenceRepository.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\repository\UserRepository.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\security\JwtService.java
+C:\Users\Tess\Desktop\HNG\notification-system\notification-system\src\main\java\com\example\demo\service\UserService.java

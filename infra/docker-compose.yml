@@ -1,0 +1,99 @@
+version: "3.9"
+
+services:
+  # ---------------------------
+  # 🟣 API Gateway Service
+  # ---------------------------
+  api_gateway:
+    container_name: api-gateway
+    build:
+      context: ../services/api-gateway
+      dockerfile: Dockerfile
+    restart: always
+    env_file:
+      - ../services/api-gateway/.env
+    depends_on:
+      - rabbitmq
+      - redis
+      - postgres
+    ports:
+      - "3000:3000" # Access API Gateway on http://localhost:3000
+    networks:
+      - backend
+
+  # ---------------------------
+  # 🐇 RabbitMQ (Message Broker)
+  # ---------------------------
+  rabbitmq:
+    container_name: rabbitmq
+    image: rabbitmq:3-management
+    restart: always
+    environment:
+      RABBITMQ_DEFAULT_USER: admin
+      RABBITMQ_DEFAULT_PASS: admin
+    ports:
+      - "5672:5672" # Main connection port
+      - "15672:15672" # Management UI → http://localhost:15672
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - backend
+
+  # ---------------------------
+  # ⚡ Redis (Caching / Shared Status Store)
+  # ---------------------------
+  redis:
+    container_name: redis
+    image: redis:7
+    restart: always
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - backend
+
+  # ---------------------------
+  # 🐘 PostgreSQL (Used by User & Template Services)
+  # ---------------------------
+  postgres:
+    container_name: postgres
+    image: postgres:16
+    restart: always
+    environment:
+      POSTGRES_USER: appuser
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: notification_system
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+
+  # ---------------------------
+  # 🌍 Adminer (Optional - DB Browser for PostgreSQL)
+  # ---------------------------
+  adminer:
+    container_name: adminer
+    image: adminer
+    restart: always
+    depends_on:
+      - postgres
+    ports:
+      - "8080:8080"
+    networks:
+      - backend
+
+# ---------------------------
+# 🔗 Networks & Volumes
+# ---------------------------
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  rabbitmq_data:
+  redis_data:
+  postgres_data:

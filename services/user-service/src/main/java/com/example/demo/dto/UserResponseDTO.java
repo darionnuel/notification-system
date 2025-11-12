@@ -18,6 +18,10 @@ public class UserResponseDTO {
         this.created_at = created_at;
     }
 
+    public UserResponseDTO() {
+
+    }
+
     public String getName() {
         return name;
     }

@@ -43,18 +43,21 @@ public class UserService {
     private UserResponseDTO mapToDto(User user) {
         UserPreferenceDTO prefDto = null;
         if (user.getPreference() != null) {
-            prefDto = UserPreferenceDTO.builder()
-                    .email(user.getPreference().getEmailEnabled())
-                    .push(user.getPreference().getPushEnabled())
-                    .build();
+            prefDto = new UserPreferenceDTO(
+                    user.getPreference().getEmailEnabled(),
+                    user.getPreference().getPushEnabled()
+            );
         }
 
-        return UserResponseDTO.builder()
-                .email(user.getEmail())
-                .push_token(user.getPushToken())
-                .preferences(prefDto)
-                .build();
+        UserResponseDTO response = new UserResponseDTO();
+        response.setName(user.getName());
+        response.setEmail(user.getEmail());
+        response.setPush_token(user.getPushToken());
+        response.setPreferences(prefDto);
+        return response;
     }
+
+
 
     public Optional<User> getUserById(UUID id) {
         return userRepository.findById(id);

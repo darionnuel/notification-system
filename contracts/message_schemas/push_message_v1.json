@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PushNotification",
+  "type": "object",
+  "required": ["token", "title", "message"],
+  "properties": {
+    "token": { "type": "string", "minLength": 10 },
+    "title": { "type": "string" },
+    "message": { "type": "string" },
+    "image": { "type": "string", "format": "uri" },
+    "link": { "type": "string", "format": "uri" }
+  }
+}

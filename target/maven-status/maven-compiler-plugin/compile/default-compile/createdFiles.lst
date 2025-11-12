@@ -1,0 +1,16 @@
+com\example\demo\dto\PaginationMeta.class
+com\example\demo\entity\User.class
+com\example\demo\service\UserService.class
+com\example\demo\entity\NotificationPreference.class
+com\example\demo\dto\LoginRequest.class
+com\example\demo\repository\UserRepository.class
+com\example\demo\config\SecurityConfig.class
+com\example\demo\repository\NotificationPreferenceRepository.class
+com\example\demo\security\JwtService.class
+com\example\demo\dto\UserRequest.class
+com\example\demo\dto\UserResponse.class
+com\example\demo\entity\User$UserBuilder.class
+com\example\demo\controller\UserController.class
+com\example\demo\dto\ApiResponse.class
+com\example\demo\entity\NotificationPreference$NotificationPreferenceBuilder.class
+com\example\demo\NotificationServiceApplication.class

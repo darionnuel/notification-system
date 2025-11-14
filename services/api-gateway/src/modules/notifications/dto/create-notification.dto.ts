@@ -24,12 +24,29 @@ export class CreateNotificationDto {
   user_id: string;
 
   @ApiProperty({
-    description: 'Template ID to use for the notification',
-    example: 'welcome_email_v1',
+    description: 'Template code to use for the notification',
+    example: 'welcome_email',
   })
   @IsString()
   @IsNotEmpty()
-  template_id: string;
+  template_code: string;
+
+  @ApiProperty({
+    description: 'Priority level (0-10, higher = more important)',
+    example: 5,
+    required: false,
+    minimum: 0,
+    maximum: 10,
+  })
+  priority?: number;
+
+  @ApiProperty({
+    description: 'Optional metadata for overrides (language, from_email, etc.)',
+    type: Object,
+    required: false,
+    example: { language: 'en', from_email: 'noreply@example.com' },
+  })
+  metadata?: Record<string, unknown>;
 
   @ApiProperty({
     description: 'Variables to populate the template',

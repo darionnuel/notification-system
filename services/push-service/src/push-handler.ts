@@ -5,7 +5,8 @@ type PushData = {
 	device_token: string;
 	title: string;
 	message: string;
-	image: string;
+	image?: string;
+	data?: Record<string, string>;
 };
 
 const app = initializeApp({
@@ -14,25 +15,34 @@ const app = initializeApp({
 
 const messaging = getMessaging(app);
 
-export async function handlePushNotification(data: PushData) {
-	const message = {
+export async function handlePushNotification(data: PushData): Promise<string> {
+	const message: any = {
 		token: data.device_token,
 		notification: {
 			title: data.title,
 			body: data.message,
-			image: data.image,
 		},
 	};
 
+	if (data.image) {
+		message.notification.image = data.image;
+	}
+
+	if (data.data) {
+		message.data = data.data;
+	}
+
 	try {
 		const response = await messaging.send(message);
+		return response;
 	} catch (error) {
-		console.error(
-			"❌ Push failed:",
+		const errorMessage =
 			error instanceof Error
-				? error?.message
-				: "Couldn't send notification"
-		);
-		throw error;
+				? error.message
+				: "Couldn't send notification";
+
+		console.error(`Push failed: ${errorMessage}`);
+
+		throw new Error(`Firebase push notification failed: ${errorMessage}`);
 	}
 }

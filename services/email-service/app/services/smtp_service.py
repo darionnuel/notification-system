@@ -7,16 +7,24 @@ from typing import Optional, Dict, Any
 from sendgrid.helpers.mail import Mail, Email, To, Content
 
 from app.core.config import settings
-from app.core.circuit_breaker import CircuitBreaker
+from app.core.async_circuit_breaker import AsyncCircuitBreaker
 
 
 class SMTPService:
     """Service for sending emails via SMTP or SendGrid."""
     
     def __init__(self):
-        """Initialize SMTP service."""
-        self.smtp_circuit_breaker = CircuitBreaker(name="SMTP")
-        self.sendgrid_circuit_breaker = CircuitBreaker(name="SendGrid")
+        """Initialize SMTP service with circuit breakers."""
+        self.smtp_circuit_breaker = AsyncCircuitBreaker(
+            name="SMTP",
+            failure_threshold=5,  # SMTP can be flaky, allow more retries
+            timeout=60  # 1 minute cooldown
+        )
+        self.sendgrid_circuit_breaker = AsyncCircuitBreaker(
+            name="SendGrid",
+            failure_threshold=3,
+            timeout=30
+        )
     
     async def send_via_smtp(
         self,

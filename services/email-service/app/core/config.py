@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     template_service_url: str = "http://localhost:8001"
     template_service_timeout: int = 10  # seconds
     
+    # User Service
+    user_service_url: str = "http://localhost:8000"
+    user_service_timeout: int = 10  # seconds
+    
     # SMTP Configuration
     smtp_host: str = "smtp.gmail.com"
     smtp_port: int = 587

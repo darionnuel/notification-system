@@ -1,2 +1,11 @@
 local/
 shared/*
+
+# Firebase service account keys
+**/firebase-service-account.json
+**/config/firebase-service-account*.json
+
+# Environment and config files
+**/.env
+**/.env.local
+**/config/*.json

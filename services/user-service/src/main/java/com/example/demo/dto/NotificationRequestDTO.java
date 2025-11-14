@@ -22,6 +22,9 @@ public class NotificationRequestDTO {
         this.metadata = metadata;
     }
 
+    public NotificationRequestDTO() {
+    }
+
     public String getNotification_type() {
         return notification_type;
     }

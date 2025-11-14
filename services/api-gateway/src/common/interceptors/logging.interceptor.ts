@@ -18,12 +18,13 @@ export class LoggingInterceptor implements NestInterceptor {
     const url = req.url;
     const start = Date.now();
 
-    let correlationId: string | null = null;
+    let correlationId: string | undefined;
     const headerValue = req.headers['x-correlation-id'];
+
     if (typeof headerValue === 'string') {
       correlationId = headerValue;
-    } else if (Array.isArray(headerValue) && headerValue.length > 0) {
-      correlationId = headerValue[0]; // take the first if array
+    } else if (Array.isArray(headerValue)) {
+      correlationId = headerValue[0];
     }
 
     return next.handle().pipe(

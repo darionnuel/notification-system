@@ -1,5 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEnum, IsNotEmpty, IsObject, IsString } from 'class-validator';
+import {
+  IsEnum,
+  IsNotEmpty,
+  IsObject,
+  IsString,
+  IsOptional,
+} from 'class-validator';
 
 export enum NotificationType {
   EMAIL = 'email',
@@ -38,4 +44,13 @@ export class CreateNotificationDto {
   })
   @IsObject()
   variables: Record<string, unknown>;
+
+  @ApiProperty({
+    description: 'Idempotency / correlation request id',
+    example: '08f1d7ba-c6bb-4f35-9bb1-e97d9c84b93b',
+    required: false,
+  })
+  @IsOptional()
+  @IsString()
+  request_id?: string;
 }

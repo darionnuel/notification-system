@@ -24,16 +24,33 @@ class EmailStatus(str, Enum):
 # Request Schemas
 
 class EmailNotificationRequest(BaseModel):
-    """Schema for email notification request from queue."""
+    """
+    Schema for email notification request from queue.
+    
+    Matches NotificationQueueMessage from API Gateway.
+    Contains only REFERENCES (user_id, template_code), not fetched data.
+    Email Service will fetch user details and template using these references.
+    """
+    # Identification
     notification_id: str = Field(..., description="Unique notification ID")
-    notification_type: NotificationType = Field(..., description="Type of notification")
-    user_id: str = Field(..., description="User ID")
-    template_code: str = Field(..., description="Template code to use")
-    variables: Dict[str, Any] = Field(..., description="Variables for template rendering")
     request_id: str = Field(..., description="Unique request ID for idempotency")
-    priority: int = Field(default=1, ge=1, le=10, description="Priority (1-10)")
+    correlation_id: str = Field(..., description="Correlation ID for tracing")
+    version: str = Field(default="v1", description="Message version")
+    
+    # Core References (NOT fetched data - workers fetch from services)
+    type: str = Field(..., description="Notification type: 'email' or 'push'")
+    user_id: str = Field(..., description="User ID reference - fetch user from User Service")
+    template_code: str = Field(..., description="Template code reference - fetch from Template Service")
+    variables: Dict[str, Any] = Field(..., description="Variables for template rendering")
+    
+    # Operational
+    priority: int = Field(default=5, ge=0, le=10, description="Priority (0-10, default 5)")
+    timestamp: str = Field(..., description="Message timestamp")
+    retry_count: int = Field(default=0, description="Current retry attempt")
+    max_retries: int = Field(default=3, description="Maximum retry attempts")
+    
+    # Optional
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional metadata")
-    correlation_id: Optional[str] = Field(None, description="Correlation ID for tracing")
 
 
 class EmailSendRequest(BaseModel):

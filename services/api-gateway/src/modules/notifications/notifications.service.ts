@@ -5,9 +5,14 @@ import { v4 as uuidv4 } from 'uuid';
 import { NotificationQueueMessage } from '../../shared/message.types';
 import { NotificationResult } from './types/notification-result.type';
 import Redis from 'ioredis';
+import { EMAIL_ROUTING_KEY, PUSH_ROUTING_KEY } from '../../shared/constants';
 
 const ENABLE_REDIS = (process.env.ENABLE_REDIS || 'false') === 'true';
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
+
+// Routing keys for RabbitMQ
+// const EMAIL_ROUTING_KEY = 'email';
+// const PUSH_ROUTING_KEY = 'push';
 
 @Injectable()
 export class NotificationsService {

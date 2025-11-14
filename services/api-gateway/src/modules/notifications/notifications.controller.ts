@@ -65,7 +65,7 @@ export class NotificationsController {
     const correlation_id = req.headers['x-correlation-id'] as
       | string
       | undefined;
-    const request_id = correlation_id || uuidv4();
+    const request_id = dto.request_id || correlation_id || uuidv4();
 
     const result: NotificationResult =
       await this.notificationsService.sendNotification({

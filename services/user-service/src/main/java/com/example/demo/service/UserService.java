@@ -45,11 +45,13 @@ public class UserService {
         if (user.getPreference() != null) {
             prefDto = new UserPreferenceDTO(
                     user.getPreference().getEmailEnabled(),
-                    user.getPreference().getPushEnabled()
+                    user.getPreference().getPushEnabled(),
+                    user.getPreference().getLanguage()
             );
         }
 
         UserResponseDTO response = new UserResponseDTO();
+        response.setId(user.getId());
         response.setName(user.getName());
         response.setEmail(user.getEmail());
         response.setPush_token(user.getPushToken());

@@ -13,6 +13,6 @@ export const startServer = () => {
 
 	const port = process.env.PORT || 4003;
 	app.listen(port, () => {
-		console.log(`App started on ${port}`);
+		console.log(`Push service started on port ${port}`);
 	});
 };

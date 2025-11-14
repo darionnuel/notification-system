@@ -6,23 +6,10 @@ import { UserService } from '../user/user.service';
 import { TemplateService } from '../template/template.service';
 import { EmailMessage, PushMessage } from '../../shared/message.types';
 import { NotificationResult } from './types/notification-result.type';
-import { EMAIL_ROUTING_KEY, PUSH_ROUTING_KEY } from '../../shared/constants';
 import Redis from 'ioredis';
 
 const ENABLE_REDIS = (process.env.ENABLE_REDIS || 'false') === 'true';
-const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
-
-interface User {
-  id: string;
-  email?: string;
-  push_tokens?: string[];
-}
-
-interface Template {
-  id: string;
-  content: string;
-  type: 'email' | 'push';
-}
+const REDIS_URL = process.env.REDIS_URL || 'redis://localhost:6379';
 
 @Injectable()
 export class NotificationsService {
@@ -42,15 +29,12 @@ export class NotificationsService {
 
   private async isDuplicate(request_id: string): Promise<boolean> {
     if (!this.redis) return false;
-    const key = `idempotency:${request_id}`;
-    const exists = await this.redis.get(key);
-    return !!exists;
+    return !!(await this.redis.get(`idempotency:${request_id}`));
   }
 
-  private async markProcessed(request_id: string, ttlSeconds = 60 * 60 * 24) {
+  private async markProcessed(request_id: string, ttl = 24 * 60 * 60) {
     if (!this.redis) return;
-    const key = `idempotency:${request_id}`;
-    await this.redis.set(key, '1', 'EX', ttlSeconds);
+    await this.redis.set(`idempotency:${request_id}`, '1', 'EX', ttl);
   }
 
   private buildEmailMessage(params: {
@@ -63,15 +47,10 @@ export class NotificationsService {
   }): EmailMessage {
     return {
       version: 'v1',
-      request_id: params.request_id,
-      notification_id: params.notification_id,
-      type: 'email', // strictly "email"
-      user_id: params.user_id,
-      email: params.email,
-      template_id: params.template_id,
-      variables: params.variables,
+      type: 'email',
       timestamp: new Date().toISOString(),
       metadata: {},
+      ...params,
     };
   }
 
@@ -85,15 +64,10 @@ export class NotificationsService {
   }): PushMessage {
     return {
       version: 'v1',
-      request_id: params.request_id,
-      notification_id: params.notification_id,
-      type: 'push', // strictly "push"
-      user_id: params.user_id,
-      device_tokens: params.device_tokens,
-      template_id: params.template_id,
-      variables: params.variables,
+      type: 'push',
       timestamp: new Date().toISOString(),
       metadata: {},
+      ...params,
     };
   }
 
@@ -104,45 +78,33 @@ export class NotificationsService {
     variables: Record<string, any>;
     request_id?: string;
   }): Promise<NotificationResult> {
-    const request_id: string = dto.request_id ?? uuidv4();
+    const request_id = dto.request_id ?? uuidv4();
 
     if (await this.isDuplicate(request_id)) {
       this.logger.warn(`Duplicate request_id detected: ${request_id}`);
       return { request_id, duplicate: true };
     }
 
-    // fetch user and template
     const [userRes, templateRes] = await Promise.all([
       this.userService.getUser(dto.user_id),
       this.templateService.getTemplate(dto.template_id),
     ]);
 
-    const user: User | null = userRes?.data ?? null;
-    const template: Template | null =
-      templateRes?.data &&
-      typeof templateRes.data === 'object' &&
-      'id' in templateRes.data &&
-      'content' in templateRes.data &&
-      'type' in templateRes.data
-        ? {
-            id: templateRes.data.id,
-            content: templateRes.data.content,
-            type: templateRes.data.type,
-          }
-        : null;
+    const user = userRes?.data ?? null;
+    const template = templateRes?.data ?? null;
 
     if (!user) throw new BadRequestException('user_not_found');
     if (!template) throw new BadRequestException('template_not_found');
 
     const notification_id = `notif_${Date.now()}`;
 
-    // prepare message depending on type
-    let msg: EmailMessage | PushMessage;
+    let message: EmailMessage | PushMessage;
+    let routingKey: string;
 
     if (dto.type === 'email') {
       if (!user.email) throw new BadRequestException('user_email_missing');
 
-      msg = this.buildEmailMessage({
+      message = this.buildEmailMessage({
         request_id,
         notification_id,
         user_id: dto.user_id,
@@ -151,59 +113,38 @@ export class NotificationsService {
         variables: dto.variables,
       });
 
-      // AJV schema validation
-      try {
-        this.schemaValidator.validateMessage('email', msg);
-      } catch (err: unknown) {
-        const msgErr = err instanceof Error ? err.message : String(err);
-        this.logger.error(`Email message validation failed: ${msgErr}`);
-        throw new BadRequestException(
-          `email_schema_validation_failed: ${msgErr}`,
-        );
-      }
-
-      await this.rabbitmqService.publish(EMAIL_ROUTING_KEY, msg);
+      this.schemaValidator.validateMessage('email', message);
+      routingKey = 'email';
     } else {
-      // push
-      const device_tokens: string[] = Array.isArray(user.push_tokens)
-        ? user.push_tokens
-        : user.push_tokens || [];
+      const tokens = Array.isArray(user.push_tokens) ? user.push_tokens : [];
 
-      if (!device_tokens || device_tokens.length === 0)
+      if (tokens.length === 0)
         throw new BadRequestException('user_device_tokens_missing');
 
-      msg = this.buildPushMessage({
+      message = this.buildPushMessage({
         request_id,
         notification_id,
         user_id: dto.user_id,
-        device_tokens,
+        device_tokens: tokens,
         template_id: dto.template_id,
         variables: dto.variables,
       });
 
-      // AJV schema validation
-      try {
-        this.schemaValidator.validateMessage('push', msg);
-      } catch (err: unknown) {
-        const msgErr = err instanceof Error ? err.message : String(err);
-        this.logger.error(`Push message validation failed: ${msgErr}`);
-        throw new BadRequestException(
-          `push_schema_validation_failed: ${msgErr}`,
-        );
-      }
-
-      await this.rabbitmqService.publish(PUSH_ROUTING_KEY, msg);
+      this.schemaValidator.validateMessage('push', message);
+      routingKey = 'push';
     }
 
-    // mark processed for idempotency
-    await this.markProcessed(request_id);
+    await this.rabbitmqService.publish(routingKey, message);
 
-    // write a queued status into whatever status store you have (left as TODO)
-    // TODO: call status service or write to shared DB
+    await this.markProcessed(request_id);
 
     this.logger.log(
       `Queued notification ${notification_id} request_id=${request_id}`,
     );
-    return { notification_id, request_id };
+
+    return {
+      notification_id,
+      request_id,
+    };
   }
 }

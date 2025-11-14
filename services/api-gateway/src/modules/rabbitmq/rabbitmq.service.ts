@@ -91,11 +91,14 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
 
       // 5. Bind queues to exchange (as per task.md structure)
       await Promise.all([
-        this.channel.bindQueue('email.queue', exchange, 'email'),
-        this.channel.bindQueue('push.queue', exchange, 'push'),
-        this.channel.bindQueue('failed.queue', exchange, 'failed'),
+        this.channel.bindQueue('email.queue', EXCHANGE, 'email'),
+        this.channel.bindQueue('push.queue', EXCHANGE, 'push'),
+        this.channel.bindQueue('failed.queue', EXCHANGE, 'failed'),
       ]);
       this.logger.log(`✅ Queue bindings configured`);
+
+      this.connected = true;
+      this.reconnectAttempts = 0;
 
       this.logger.log(
         `🚀 RabbitMQ initialized successfully | Exchange: ${EXCHANGE}`,
@@ -120,7 +123,7 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     );
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = undefined;
-      this.connectWithRetry().catch((e) =>
+      this.onModuleInit().catch((e) =>
         this.logger.warn(
           'Reconnect attempt failed: ' +
             (e instanceof Error ? e.message : String(e)),
@@ -147,16 +150,10 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     message: Record<string, any>,
     options?: amqp.Options.Publish,
   ): Promise<void> {
-    const payload = Buffer.isBuffer(message)
-      ? message
-      : Buffer.from(JSON.stringify(message));
-    const exchange =
-      process.env.RABBITMQ_EXCHANGE || EXCHANGE || 'notifications.direct';
+    const payload = Buffer.from(JSON.stringify(message));
+    const priority = typeof message.priority === 'number' ? message.priority : 5;
 
     try {
-      const payload = Buffer.from(JSON.stringify(message));
-      const priority = typeof message.priority === 'number' ? message.priority : 5;
-
       await new Promise<void>((resolve, reject) => {
         this.channel!.publish(
           EXCHANGE,
@@ -181,31 +178,13 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
             resolve();
           },
         );
-        return;
-      } catch (err: unknown) {
-        // If immediate publish fails, fall through to buffering behavior
-        this.logger.warn(
-          'Immediate publish failed, will buffer message: ' +
-            (err instanceof Error ? err.message : String(err)),
-        );
-      }
-    }
+      });
 
-      const correlationId =
-        typeof message.request_id === 'string' ? message.request_id : 'n/a';
       const notificationId =
         typeof message.notification_id === 'string'
           ? message.notification_id
           : 'n/a';
 
-    return new Promise<void>((resolve, reject) => {
-      this.pendingPublishes.push({
-        routingKey,
-        payload,
-        options,
-        resolve,
-        reject,
-      });
       this.logger.log(
         `📨 Published | Queue: ${routingKey} | ID: ${notificationId} | Priority: ${priority}`,
       );

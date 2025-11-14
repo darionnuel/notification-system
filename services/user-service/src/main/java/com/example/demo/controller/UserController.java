@@ -33,37 +33,23 @@ public class UserController {
     }
 
     @PostMapping
-    public ResponseEntity<ApiResponse<UserResponseDTO>> createUser(@RequestBody @Valid UserRequest request) {
-        try {
-            // Convert UserRequest to User entity
-            User user = new User();
-            user.setName(request.getName());
-            user.setEmail(request.getEmail());
-            user.setPassword(request.getPassword());
-            user.setPushToken(request.getPush_token());
+    public ResponseEntity<Map<String, UserResponseDTO>> createUser(@RequestBody @Valid UserRequest request) {
+        User user = new User();
+        user.setName(request.getName());
+        user.setEmail(request.getEmail());
+        user.setPassword(request.getPassword());
+        user.setPushToken(request.getPush_token());
 
-            UserResponseDTO response = userService.createUser(user);
+        UserResponseDTO response = userService.createUser(user);
 
-            ApiResponse<UserResponseDTO> apiResponse = new ApiResponse<>(
-                    true,
-                    response,
-                    null,
-                    "User created successfully",
-                    null
-            );
+        String key = "user_" + response.getId().toString().replace("-", "");
 
-            return ResponseEntity.status(HttpStatus.CREATED).body(apiResponse);
-        } catch (Exception e) {
-            ApiResponse<UserResponseDTO> errorResponse = new ApiResponse<>(
-                    false,
-                    null,
-                    e.getMessage(),
-                    "Failed to create user",
-                    null
-            );
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(errorResponse);
-        }
+        Map<String, UserResponseDTO> wrapper = Map.of(key, response);
+
+        return ResponseEntity.status(HttpStatus.CREATED).body(wrapper);
     }
+
+
 
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<User>> getUser(@PathVariable UUID id) {

@@ -27,11 +27,6 @@ def get_db() -> Generator[Session, None, None]:
     
     Yields:
         Session: Database session
-        
-    Example:
-        @app.get("/items/")
-        def read_items(db: Session = Depends(get_db)):
-            return db.query(Item).all()
     """
     db = SessionLocal()
     try:

@@ -5,6 +5,7 @@ import {
   OnModuleDestroy,
 } from '@nestjs/common';
 import * as amqp from 'amqplib';
+import { v4 as uuidv4 } from 'uuid';
 import { EXCHANGE } from '../../shared/constants';
 
 type PendingPublish = {
@@ -41,75 +42,64 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit(): Promise<void> {
-    await this.connectWithRetry();
-  }
-
-  private async connectWithRetry(): Promise<void> {
-    const attempt = this.reconnectAttempts + 1;
-    const url = this.getRabbitUrl();
-    const exchange =
-      process.env.RABBITMQ_EXCHANGE || EXCHANGE || 'notifications.direct';
+    const url = process.env.RABBITMQ_URL || 'amqp://guest:guest@localhost:5672';
 
     try {
-      this.logger.log(
-        `Attempting RabbitMQ connection to ${url} (attempt ${attempt})`,
-      );
-      this.connection = await amqp.connect(url);
-
-      this.connected = true;
-
-      this.connection.on('error', (err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        this.logger.warn(`RabbitMQ connection error: ${msg}`);
-
-        this.connected = false;
-      });
-
-      this.connection.on('close', () => {
-        this.logger.warn('RabbitMQ connection closed — scheduling reconnect');
-
-        this.connected = false;
-
-        this.safeClearChannelAndConnection();
-        this.scheduleReconnect();
-      });
-
+      this.logger.log(`🔌 Connecting to RabbitMQ at ${url}...`);
+      
+      const connection = await amqp.connect(url);
+      this.connection = connection;
       this.channel = await this.connection.createConfirmChannel();
 
-      // Ensure exchange & queues exist and are bound.
-      await this.channel.assertExchange(exchange, 'direct', { durable: true });
+      // 1. Create main exchange (DIRECT type as per task.md)
+      await this.channel.assertExchange(EXCHANGE, 'direct', { durable: true });
+      this.logger.log(`✅ Exchange created: ${EXCHANGE} (type: direct)`);
 
-      await Promise.all([
-        this.channel.assertQueue('email.queue', { durable: true }),
-        this.channel.assertQueue('push.queue', { durable: true }),
-        this.channel.assertQueue('failed.queue', { durable: true }),
-      ]);
+      // 2. Create Dead Letter Queue (failed.queue as per task.md)
+      await this.channel.assertQueue('failed.queue', {
+        durable: true,
+        arguments: {
+          'x-message-ttl': 86400000, // 24 hours in ms
+          'x-max-length': 10000, // Max 10k messages
+        },
+      });
+      this.logger.log(`✅ Dead Letter Queue created: failed.queue`);
 
-      // use the same `exchange` variable for binds
+      // 3. Create Email Queue with DLQ configuration
+      await this.channel.assertQueue('email.queue', {
+        durable: true,
+        arguments: {
+          'x-dead-letter-exchange': EXCHANGE,
+          'x-dead-letter-routing-key': 'failed',
+          'x-message-ttl': 3600000, // 1 hour
+          'x-max-priority': 10, // Enable priority
+        },
+      });
+      this.logger.log(`✅ Email queue created: email.queue`);
+
+      // 4. Create Push Queue with DLQ configuration
+      await this.channel.assertQueue('push.queue', {
+        durable: true,
+        arguments: {
+          'x-dead-letter-exchange': EXCHANGE,
+          'x-dead-letter-routing-key': 'failed',
+          'x-message-ttl': 3600000, // 1 hour
+          'x-max-priority': 10, // Enable priority
+        },
+      });
+      this.logger.log(`✅ Push queue created: push.queue`);
+
+      // 5. Bind queues to exchange (as per task.md structure)
       await Promise.all([
         this.channel.bindQueue('email.queue', exchange, 'email'),
         this.channel.bindQueue('push.queue', exchange, 'push'),
         this.channel.bindQueue('failed.queue', exchange, 'failed'),
       ]);
+      this.logger.log(`✅ Queue bindings configured`);
 
       this.logger.log(
-        `✅ RabbitMQ connected and exchange/assertions done (exchange=${exchange})`,
+        `🚀 RabbitMQ initialized successfully | Exchange: ${EXCHANGE}`,
       );
-
-      // reset reconnect attempts and flush any buffered publishes
-      this.reconnectAttempts = 0;
-      if (this.reconnectTimer) {
-        clearTimeout(this.reconnectTimer);
-        this.reconnectTimer = undefined;
-      }
-
-      // Flush pending publishes
-      this.flushPendingPublishes(exchange).catch((e) => {
-        this.logger.warn(
-          'Failed flushing pending publishes: ' +
-            (e instanceof Error ? e.message : String(e)),
-        );
-      });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       this.logger.warn(`RabbitMQ connect failed: ${msg}`);
@@ -163,16 +153,33 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
     const exchange =
       process.env.RABBITMQ_EXCHANGE || EXCHANGE || 'notifications.direct';
 
-    // If channel is available, attempt immediate publish with confirms
-    if (this.channel) {
-      try {
-        await this.publishOnChannel(exchange, routingKey, payload, options);
-        const correlationId =
-          typeof (message as any).request_id === 'string'
-            ? (message as any).request_id
-            : 'n/a';
-        this.logger.log(
-          `📨 Published message routing_key=${routingKey} correlation_id=${correlationId}`,
+    try {
+      const payload = Buffer.from(JSON.stringify(message));
+      const priority = typeof message.priority === 'number' ? message.priority : 5;
+
+      await new Promise<void>((resolve, reject) => {
+        this.channel!.publish(
+          EXCHANGE,
+          routingKey,
+          payload,
+          {
+            persistent: true,
+            priority, // Support message priority
+            contentType: 'application/json',
+            contentEncoding: 'utf-8',
+            timestamp: Date.now(),
+            messageId: message.notification_id || uuidv4(),
+            correlationId: message.correlation_id || message.request_id,
+          },
+          (err?: Error | null) => {
+            if (err) {
+              this.logger.error(
+                `Failed to publish message to ${routingKey}: ${err.message}`,
+              );
+              return reject(err);
+            }
+            resolve();
+          },
         );
         return;
       } catch (err: unknown) {
@@ -184,12 +191,12 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
-    // Buffer the publish for later flush
-    if (this.pendingPublishes.length >= this.maxPending) {
-      const errMsg = 'Pending publish queue full';
-      this.logger.error(errMsg);
-      throw new Error(errMsg);
-    }
+      const correlationId =
+        typeof message.request_id === 'string' ? message.request_id : 'n/a';
+      const notificationId =
+        typeof message.notification_id === 'string'
+          ? message.notification_id
+          : 'n/a';
 
     return new Promise<void>((resolve, reject) => {
       this.pendingPublishes.push({
@@ -200,64 +207,12 @@ export class RabbitmqService implements OnModuleInit, OnModuleDestroy {
         reject,
       });
       this.logger.log(
-        `Buffered message routing_key=${routingKey} pending_count=${this.pendingPublishes.length}`,
+        `📨 Published | Queue: ${routingKey} | ID: ${notificationId} | Priority: ${priority}`,
       );
-    });
-  }
-
-  private async publishOnChannel(
-    exchange: string,
-    routingKey: string,
-    payload: Buffer,
-    options?: amqp.Options.Publish,
-  ): Promise<void> {
-    if (!this.channel) throw new Error('RabbitMQ channel not available');
-
-    // Use confirm channel pattern: publish + waitForConfirms()
-    const published = this.channel.publish(exchange, routingKey, payload, {
-      persistent: true,
-      ...options,
-    });
-
-    // Even if publish returns true/false, we should wait for confirm
-    await this.channel.waitForConfirms();
-    if (!published) {
-      // not fatal — just log. confirm ensures broker accepted it.
-      this.logger.debug(
-        `publishOnChannel: publish returned ${published} for ${routingKey}`,
-      );
-    }
-  }
-
-  private async flushPendingPublishes(exchange: string) {
-    if (!this.channel) return;
-    if (this.pendingPublishes.length === 0) return;
-
-    this.logger.log(
-      `Flushing ${this.pendingPublishes.length} buffered messages...`,
-    );
-    const toFlush = this.pendingPublishes.splice(
-      0,
-      this.pendingPublishes.length,
-    );
-    for (const item of toFlush) {
-      try {
-        await this.publishOnChannel(
-          exchange,
-          item.routingKey,
-          item.payload,
-          item.options,
-        );
-        item.resolve();
-        this.logger.log(
-          `Flushed buffered message routing_key=${item.routingKey}`,
-        );
-      } catch (err) {
-        item.reject(err);
-        this.logger.warn(
-          `Failed to flush buffered message routing_key=${item.routingKey}: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : JSON.stringify(err);
+      this.logger.error(`❌ RabbitMQ publish failed: ${errorMsg}`);
+      throw new Error(`RabbitMQ publish failed: ${errorMsg}`);
     }
   }
 

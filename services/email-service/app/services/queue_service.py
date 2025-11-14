@@ -33,18 +33,23 @@ class QueueService:
         self.channel = await self.connection.channel()
         await self.channel.set_qos(prefetch_count=settings.rabbitmq_prefetch_count)
         
-        # Declare exchange
+        # Declare exchange (DIRECT type as per task.md)
         self.exchange = await self.channel.declare_exchange(
             settings.rabbitmq_exchange,
-            ExchangeType.TOPIC,
+            ExchangeType.DIRECT,
             durable=True,
         )
         
-        # Declare queues
+        # Declare queues with DLX configuration (must match API Gateway config)
         self.email_queue = await self.channel.declare_queue(
             settings.rabbitmq_email_queue,
             durable=True,
-            arguments={"x-message-ttl": 86400000}  # 24 hours TTL
+            arguments={
+                "x-message-ttl": 3600000,  # 1 hour TTL
+                "x-dead-letter-exchange": settings.rabbitmq_exchange,
+                "x-dead-letter-routing-key": "failed",
+                "x-max-priority": 10  # Support message priority
+            }
         )
         
         self.status_queue = await self.channel.declare_queue(
@@ -55,22 +60,26 @@ class QueueService:
         self.failed_queue = await self.channel.declare_queue(
             settings.rabbitmq_failed_queue,
             durable=True,
+            arguments={
+                "x-message-ttl": 86400000,  # 24 hour TTL (must match API Gateway)
+                "x-max-length": 10000  # Max 10k messages (must match API Gateway)
+            }
         )
         
-        # Bind queues to exchange
+        # Bind queues to exchange (DIRECT type - exact routing key match)
         await self.email_queue.bind(
             self.exchange,
-            routing_key="email.*"
+            routing_key="email"  # Exact match, not wildcard
         )
         
         await self.status_queue.bind(
             self.exchange,
-            routing_key="status.*"
+            routing_key="status"  # Exact match for status updates
         )
         
         await self.failed_queue.bind(
             self.exchange,
-            routing_key="failed.*"
+            routing_key="failed"  # Exact match for failed messages
         )
         
         print(f"✅ Connected to RabbitMQ at {settings.rabbitmq_url}")

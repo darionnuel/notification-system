@@ -4,7 +4,6 @@ import { SchemaValidator } from '../../common/utils/schema-validator';
 import { v4 as uuidv4 } from 'uuid';
 import { NotificationQueueMessage } from '../../shared/message.types';
 import { NotificationResult } from './types/notification-result.type';
-import { EMAIL_ROUTING_KEY, PUSH_ROUTING_KEY } from '../../shared/constants';
 import Redis from 'ioredis';
 
 const ENABLE_REDIS = (process.env.ENABLE_REDIS || 'false') === 'true';
@@ -24,15 +23,12 @@ export class NotificationsService {
 
   private async isDuplicate(request_id: string): Promise<boolean> {
     if (!this.redis) return false;
-    const key = `idempotency:${request_id}`;
-    const exists = await this.redis.get(key);
-    return !!exists;
+    return !!(await this.redis.get(`idempotency:${request_id}`));
   }
 
-  private async markProcessed(request_id: string, ttlSeconds = 60 * 60 * 24) {
+  private async markProcessed(request_id: string, ttl = 24 * 60 * 60) {
     if (!this.redis) return;
-    const key = `idempotency:${request_id}`;
-    await this.redis.set(key, '1', 'EX', ttlSeconds);
+    await this.redis.set(`idempotency:${request_id}`, '1', 'EX', ttl);
   }
 
   /**
@@ -86,7 +82,7 @@ export class NotificationsService {
     priority?: number;
     metadata?: Record<string, any>;
   }): Promise<NotificationResult> {
-    const request_id: string = dto.request_id ?? uuidv4();
+    const request_id = dto.request_id ?? uuidv4();
 
     // 1. Check idempotency
     if (await this.isDuplicate(request_id)) {

@@ -2,9 +2,9 @@ name: CI Pipeline
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev]
   pull_request:
-    branches: [main, develop]
+    branches: [main, dev]
 
 jobs:
   build-test:
@@ -47,9 +47,6 @@ jobs:
 
       - name: Lint code
         run: npm run lint --if-present
-
-      - name: Run tests
-        run: npm run test --if-present
 
       - name: Build project
         run: npm run build

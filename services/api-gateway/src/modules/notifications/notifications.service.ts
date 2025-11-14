@@ -2,9 +2,7 @@ import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { RabbitmqService } from '../rabbitmq/rabbitmq.service';
 import { SchemaValidator } from '../../common/utils/schema-validator';
 import { v4 as uuidv4 } from 'uuid';
-import { UserService } from '../user/user.service';
-import { TemplateService } from '../template/template.service';
-import { EmailMessage, PushMessage } from '../../shared/message.types';
+import { NotificationQueueMessage } from '../../shared/message.types';
 import { NotificationResult } from './types/notification-result.type';
 import { EMAIL_ROUTING_KEY, PUSH_ROUTING_KEY } from '../../shared/constants';
 import Redis from 'ioredis';
@@ -12,29 +10,13 @@ import Redis from 'ioredis';
 const ENABLE_REDIS = (process.env.ENABLE_REDIS || 'false') === 'true';
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
 
-interface User {
-  id: string;
-  email?: string;
-  push_tokens?: string[];
-}
-
-interface Template {
-  id: string;
-  content: string;
-  type: 'email' | 'push';
-}
-
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name);
   private readonly schemaValidator = new SchemaValidator();
   private redis: Redis | null = null;
 
-  constructor(
-    private readonly rabbitmqService: RabbitmqService,
-    private readonly userService: UserService,
-    private readonly templateService: TemplateService,
-  ) {
+  constructor(private readonly rabbitmqService: RabbitmqService) {
     if (ENABLE_REDIS) {
       this.redis = new Redis(REDIS_URL);
     }
@@ -53,157 +35,111 @@ export class NotificationsService {
     await this.redis.set(key, '1', 'EX', ttlSeconds);
   }
 
-  private buildEmailMessage(params: {
+  /**
+   * Build minimal notification queue message.
+   * Contains only references - workers will fetch user/template data.
+   */
+  private buildQueueMessage(params: {
+    type: 'email' | 'push';
+    user_id: string;
+    template_code: string;
+    variables: Record<string, any>;
     request_id: string;
     notification_id: string;
-    user_id: string;
-    email: string;
-    template_id: string;
-    variables: Record<string, any>;
-  }): EmailMessage {
+    priority?: number;
+    metadata?: Record<string, any>;
+  }): NotificationQueueMessage {
     return {
-      version: 'v1',
-      request_id: params.request_id,
+      // Identification
       notification_id: params.notification_id,
-      type: 'email', // strictly "email"
+      request_id: params.request_id,
+      correlation_id: params.request_id, // Use request_id as correlation_id
+      version: 'v1',
+
+      // Core References (NO fetched data)
+      type: params.type,
       user_id: params.user_id,
-      email: params.email,
-      template_id: params.template_id,
+      template_code: params.template_code,
       variables: params.variables,
+
+      // Operational
+      priority: params.priority ?? 5, // Default medium priority
       timestamp: new Date().toISOString(),
-      metadata: {},
+      retry_count: 0,
+      max_retries: 3,
+
+      // Optional
+      metadata: params.metadata,
     };
   }
 
-  private buildPushMessage(params: {
-    request_id: string;
-    notification_id: string;
-    user_id: string;
-    device_tokens: string[];
-    template_id: string;
-    variables: Record<string, any>;
-  }): PushMessage {
-    return {
-      version: 'v1',
-      request_id: params.request_id,
-      notification_id: params.notification_id,
-      type: 'push', // strictly "push"
-      user_id: params.user_id,
-      device_tokens: params.device_tokens,
-      template_id: params.template_id,
-      variables: params.variables,
-      timestamp: new Date().toISOString(),
-      metadata: {},
-    };
-  }
-
+  /**
+   * Queue notification for async processing.
+   * Gateway does NOT fetch user or template data - workers do that.
+   */
   async sendNotification(dto: {
     type: 'email' | 'push';
     user_id: string;
-    template_id: string;
+    template_code: string;
     variables: Record<string, any>;
     request_id?: string;
+    priority?: number;
+    metadata?: Record<string, any>;
   }): Promise<NotificationResult> {
     const request_id: string = dto.request_id ?? uuidv4();
 
+    // 1. Check idempotency
     if (await this.isDuplicate(request_id)) {
-      this.logger.warn(`Duplicate request_id detected: ${request_id}`);
+      this.logger.warn(`⚠️ Duplicate request_id: ${request_id}`);
       return { request_id, duplicate: true };
     }
 
-    // fetch user and template
-    const [userRes, templateRes] = await Promise.all([
-      this.userService.getUser(dto.user_id),
-      this.templateService.getTemplate(dto.template_id),
-    ]);
+    // 2. Generate notification ID
+    const notification_id = `notif_${Date.now()}_${uuidv4().slice(0, 8)}`;
 
-    const user: User | null = userRes?.data ?? null;
-    const template: Template | null =
-      templateRes?.data &&
-      typeof templateRes.data === 'object' &&
-      'id' in templateRes.data &&
-      'content' in templateRes.data &&
-      'type' in templateRes.data
-        ? {
-            id: templateRes.data.id,
-            content: templateRes.data.content,
-            type: templateRes.data.type,
-          }
-        : null;
+    // 3. Build minimal message (NO user/template fetching!)
+    const message = this.buildQueueMessage({
+      type: dto.type,
+      user_id: dto.user_id,
+      template_code: dto.template_code,
+      variables: dto.variables,
+      request_id,
+      notification_id,
+      priority: dto.priority,
+      metadata: dto.metadata,
+    });
 
-    if (!user) throw new BadRequestException('user_not_found');
-    if (!template) throw new BadRequestException('template_not_found');
-
-    const notification_id = `notif_${Date.now()}`;
-
-    // prepare message depending on type
-    let msg: EmailMessage | PushMessage;
-
-    if (dto.type === 'email') {
-      if (!user.email) throw new BadRequestException('user_email_missing');
-
-      msg = this.buildEmailMessage({
-        request_id,
-        notification_id,
-        user_id: dto.user_id,
-        email: user.email,
-        template_id: dto.template_id,
-        variables: dto.variables,
-      });
-
-      // AJV schema validation
-      try {
-        this.schemaValidator.validateMessage('email', msg);
-      } catch (err: unknown) {
-        const msgErr = err instanceof Error ? err.message : String(err);
-        this.logger.error(`Email message validation failed: ${msgErr}`);
-        throw new BadRequestException(
-          `email_schema_validation_failed: ${msgErr}`,
-        );
+    // 4. Validate message schema
+    try {
+      if (dto.type === 'email') {
+        this.schemaValidator.validateMessage('email', message);
+      } else {
+        this.schemaValidator.validateMessage('push', message);
       }
-
-      await this.rabbitmqService.publish(EMAIL_ROUTING_KEY, msg);
-    } else {
-      // push
-      const device_tokens: string[] = Array.isArray(user.push_tokens)
-        ? user.push_tokens
-        : user.push_tokens || [];
-
-      if (!device_tokens || device_tokens.length === 0)
-        throw new BadRequestException('user_device_tokens_missing');
-
-      msg = this.buildPushMessage({
-        request_id,
-        notification_id,
-        user_id: dto.user_id,
-        device_tokens,
-        template_id: dto.template_id,
-        variables: dto.variables,
-      });
-
-      // AJV schema validation
-      try {
-        this.schemaValidator.validateMessage('push', msg);
-      } catch (err: unknown) {
-        const msgErr = err instanceof Error ? err.message : String(err);
-        this.logger.error(`Push message validation failed: ${msgErr}`);
-        throw new BadRequestException(
-          `push_schema_validation_failed: ${msgErr}`,
-        );
-      }
-
-      await this.rabbitmqService.publish(PUSH_ROUTING_KEY, msg);
+    } catch (err: unknown) {
+      const msgErr = err instanceof Error ? err.message : String(err);
+      this.logger.error(`❌ Message validation failed: ${msgErr}`);
+      throw new BadRequestException(`validation_failed: ${msgErr}`);
     }
 
-    // mark processed for idempotency
+    // 5. Publish to appropriate queue
+    const routingKey = dto.type === 'email' ? EMAIL_ROUTING_KEY : PUSH_ROUTING_KEY;
+    
+    try {
+      await this.rabbitmqService.publish(routingKey, message);
+      this.logger.log(
+        `✅ Queued ${dto.type} notification | ID: ${notification_id} | User: ${dto.user_id}`,
+      );
+    } catch (err: unknown) {
+      const msgErr = err instanceof Error ? err.message : String(err);
+      this.logger.error(`❌ Failed to publish message: ${msgErr}`);
+      throw new BadRequestException('failed_to_queue_notification');
+    }
+
+    // 6. Mark as processed (idempotency)
     await this.markProcessed(request_id);
 
-    // write a queued status into whatever status store you have (left as TODO)
-    // TODO: call status service or write to shared DB
-
-    this.logger.log(
-      `Queued notification ${notification_id} request_id=${request_id}`,
-    );
+    // 7. Return immediately (async processing)
     return { notification_id, request_id };
   }
 }

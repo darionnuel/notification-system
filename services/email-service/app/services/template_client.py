@@ -3,7 +3,7 @@ from typing import Dict, Any
 from jinja2 import Template as Jinja2Template
 
 from app.core.config import settings
-from app.core.circuit_breaker import CircuitBreaker
+from app.core.async_circuit_breaker import AsyncCircuitBreaker
 
 
 class TemplateServiceClient:
@@ -13,7 +13,11 @@ class TemplateServiceClient:
         """Initialize template service client."""
         self.base_url = settings.template_service_url
         self.timeout = settings.template_service_timeout
-        self.circuit_breaker = CircuitBreaker(name="TemplateService")
+        self.circuit_breaker = AsyncCircuitBreaker(
+            name="TemplateService",
+            failure_threshold=3,
+            timeout=30
+        )
     
     async def get_template_by_code(self, template_code: str, language: str = "en") -> Dict[str, Any]:
         """
@@ -43,7 +47,7 @@ class TemplateServiceClient:
                 
                 return data["data"]
         
-        return self.circuit_breaker.call(await fetch)
+        return await self.circuit_breaker.call(fetch)
     
     def render_template(self, content: str, variables: Dict[str, Any]) -> str:
         """

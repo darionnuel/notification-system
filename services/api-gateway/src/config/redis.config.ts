@@ -1,9 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import * as Redis from 'ioredis';
+import Redis from 'ioredis';
 
 @Injectable()
 export class RedisService {
-  private client: Redis.Redis;
+  private client: Redis;
 
   constructor() {
     this.client = new Redis(process.env.REDIS_URL || 'redis://localhost:6379');
